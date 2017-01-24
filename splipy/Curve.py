@@ -72,6 +72,11 @@ class Curve(SplineObject):
 
         return result
 
+    def blossom(self, t, mu):
+        p = self.order(0)
+        R = self.bases[0].blossom(t, mu)
+        return np.matrix(R) * self.controlpoints[mu-p:mu,:]
+
     def derivative(self, t, d=1, above=True):
         """derivative(u, [d=1])
 

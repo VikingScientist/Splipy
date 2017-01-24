@@ -186,6 +186,43 @@ class BSplineBasis:
             N = N.todense()
         return N
 
+    def blossom(self, t, mu):
+        """blossom(t, mu)
+
+        :param [float] t: The blossom arguments
+        :param int mu: index of knot span to consider (knot[mu-1], knot[mu]);
+            also index of one-past the last non-zero basis function
+
+        :param bool sparse: True if computed matrix should be returned as sparse
+        :return: A matrix *N[i,j]* of all basis functions *j* evaluated in all
+            points t[i]
+        :rtype: numpy.array
+        """
+
+        p = self.order  # knot vector order
+        n_all = len(self.knots) - p  # number of basis functions (without periodicity)
+        n = len(self.knots) - p - (self.periodic+1)  # number of basis functions (with periodicity)
+        m = len(t)
+        if self.periodic >= 0:
+            t = copy.deepcopy(t)
+            # Wrap periodic evaluation into domain
+            for i in range(len(t)):
+                if t[i] < self.start() or t[i] > self.end():
+                    t[i] = (t[i] - self.start()) % (self.end() - self.start()) + self.start()
+
+        M = np.zeros(p)
+        M[-1] = 1
+        for q in range(1, p):
+            for j in range(p - q - 1, p):
+                k = mu - p + j  # 'i'-index in global knot vector (ref Hughes book pg.21)
+                if j != p-q-1:
+                    M[j] = M[j] * float(t[q-1] - self.knots[k]) / (self.knots[k + q] - self.knots[k])
+
+                if j != p-1:
+                    M[j] = M[j] + M[j + 1] * float(self.knots[k + q + 1] - t[q-1]) / (self.knots[k + q + 1] - self.knots[k + 1])
+
+        return M
+
     def integrate(self, t0, t1):
         """integrate(t0, t1)
 
