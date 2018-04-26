@@ -409,9 +409,9 @@ class SVG(MasterIO):
                 knot = list(range(len(np_pts)+1))
                 knot += [knot[0], knot[-1]]
                 knot.sort()
-                for cp in np_pts:
+                for dx in np_pts:
                     startpoint = controlpoints[-1]
-                    controlpoints.append(np.array([cp, 0]) + startpoint)
+                    controlpoints.append(np.array([dx, 0]) + startpoint)
                 curve_piece = Curve(BSplineBasis(2, knot), controlpoints)
             elif piece[0] == 'H':
                 # horizontal piece, absolute position
@@ -420,8 +420,8 @@ class SVG(MasterIO):
                 knot = list(range(len(np_pts)+1))
                 knot += [knot[0], knot[-1]]
                 knot.sort()
-                for cp in np_pts:
-                    controlpoints.append([cp, startpoint[1]])
+                for dx in np_pts:
+                    controlpoints.append([dx, startpoint[1]])
                 curve_piece = Curve(BSplineBasis(2, knot), controlpoints)
             elif piece[0] == 'v':
                 # vertical piece, relatively positioned
@@ -430,9 +430,9 @@ class SVG(MasterIO):
                 knot = list(range(len(np_pts)+1))
                 knot += [knot[0], knot[-1]]
                 knot.sort()
-                for cp in np_pts:
+                for dy in np_pts:
                     startpoint = controlpoints[-1]
-                    controlpoints.append(np.array([0, cp]) + startpoint)
+                    controlpoints.append(np.array([0, dy]) + startpoint)
                 curve_piece = Curve(BSplineBasis(2, knot), controlpoints)
             elif piece[0] == 'V':
                 # vertical piece, absolute position
@@ -441,8 +441,8 @@ class SVG(MasterIO):
                 knot = list(range(len(np_pts)+1))
                 knot += [knot[0], knot[-1]]
                 knot.sort()
-                for cp in np_pts:
-                    controlpoints.append([startpoint[0], cp])
+                for dy in np_pts:
+                    controlpoints.append([startpoint[0], dy])
                 curve_piece = Curve(BSplineBasis(2, knot), controlpoints)
             elif piece[0] == 'A' or piece[0] == 'a':
                 np_pts = np.reshape(np.array(points).astype('float'), (int(len(points))))
@@ -486,7 +486,7 @@ class SVG(MasterIO):
                 # curve_piece = Curve(BSplineBasis(2), [startpoint, last_curve[0]])
                 # curve_piece.reparam([0, curve_piece.length()])
                 # last_curve.append(curve_piece).make_periodic(0)
-                last_curve.make_periodic(0)
+                last_curve = last_curve.make_periodic(0)
                 result.append(last_curve)
                 last_curve = None
                 continue
