@@ -308,6 +308,16 @@ class TestCurve(unittest.TestCase):
         self.assertEqual(
             len(new_curves_all[2].knots(0, with_multiplicities=True)), 6)  # open knot vector [.7,.7,.7,1,1,1]
 
+        # split at unsorted list of points
+        new_curves_all = crv.split([0.70, 0.50])
+        self.assertEqual(len(new_curves_all), 3)
+        self.assertEqual(
+            len(new_curves_all[0].knots(0, with_multiplicities=True)), 6)  # open knot vector [0,0,0,.5,.5,.5]
+        self.assertEqual(
+            len(new_curves_all[1].knots(0, with_multiplicities=True)), 6)  # open knot vector [.5,.5,.5,.7,.7,.7]
+        self.assertEqual(
+            len(new_curves_all[2].knots(0, with_multiplicities=True)), 6)  # open knot vector [.7,.7,.7,1,1,1]
+
         # compare all curves which exist at parametric point 0.5
         for c in new_curves_050 + [new_curves_070[0]] + new_curves_all[0:2]:
             new_curve_evaluation = c(0.50)

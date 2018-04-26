@@ -1058,6 +1058,7 @@ class SplineObject(object):
         """
         # for single-value input, wrap it into a list
         knots = ensure_listlike(knots)
+        knots.sort()
 
         # error test input
         direction = check_direction(direction, self.pardim)
