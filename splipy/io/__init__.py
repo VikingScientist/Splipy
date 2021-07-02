@@ -21,6 +21,16 @@ except ImportError:
     has_rhino = False
 
 
+# USD depends on optional pxr
+try:
+    from pxr import Usd
+    from .usd import USD
+    has_usd = True
+except ImportError:
+    has_usd = False
+
+
+
 __all__ = ['G2', 'SVG', 'SPL', 'STL', 'OpenFOAM']
 
 if has_grdecl:

@@ -30,6 +30,7 @@ setup(
         'FiniteElement': ["nutils>=4.0"],
         'Images':        ["opencv-python>=4.0"],
         'Rhino':         ["rhino3dm>=0.14"],
+        'USD':           ["usd-core>=21.0"],
     },
     # ext_modules=cythonize("splipy/basis_eval.pyx"),
     ext_modules=cythonize([
