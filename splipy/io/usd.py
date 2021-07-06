@@ -14,19 +14,21 @@ from .master import MasterIO
 
 class USD(MasterIO):
 
-    def __init__(self, filename, binary=True):
-        # technically you can represent both ascii and binary files with .usd,
-        # but we here enforce clarity in file extension
-        if filename.endswith('.usd'):
-            if binary: filename += 'c' # binary files are denoted '.usdc'
-            else:      filename += 'a' # ascii files are denoted '.usda'
-        if binary and not filename.endswith('.usdc'):
-            filename += '.usdc'
-        if not binary and not filename.endswith('.usda'):
-            filename += '.usda'
+    def __init__(self, filename):
+        # the filename extension encodes to store ascii (.usda) or binary (.usdc)
+        if filename.endswith('.usdc'):
+            self.binary = True
+        elif filename.endswith('.usda'):
+            self.binary = False
+        elif filename.endswith('.usd'): # .usd-files can contain EITHER ascii or binary. Default is binary though
+            self.binary = True
+        else:
+            filename += '.usd'
+            self.binary = True
+
         self.filename = filename
-        self.binary = binary
         self.patch_count = 0
+        self.curve_count = 0
 
     def __enter__(self):
         self.stage = Usd.Stage.CreateNew(self.filename)
@@ -34,6 +36,26 @@ class USD(MasterIO):
 
     def read(self):
         raise IOError('Reading from USD files not supported')
+
+    def write_curve(self, crv):
+        patch = UsdGeom.NurbsCurves.Define(self.stage, f'/curve{self.curve_count}/spline')
+
+        patch.CreateOrderAttr().Set([crv.order('u')])
+        patch.CreateCurveVertexCountsAttr().Set([crv.shape[0]  ])
+        patch.CreateKnotsAttr().Set(crv.knots('u', True))
+        patch.CreateWidthsAttr().Set([.2])
+
+        if crv.rational:
+            raise RuntimeError('Rational curves are unsupported in USD format. Consider calling rebuild() on curve to force a nonrational representation')
+            cp      = crv[:,:-1]
+            weights = crv[:, -1]
+            for d in range(crv.dimension):
+                cp[:,d] /= weights
+            patch.CreatePointsAttr().Set(cp)
+            patch.CreatePointWeightsAttr().Set(weights)
+        else:
+            patch.CreatePointsAttr().Set(crv[:])
+
 
     def write_surface(self, surf, edge=None):
         if edge is None:
@@ -49,7 +71,6 @@ class USD(MasterIO):
         patch.CreateUKnotsAttr().Set(surf.knots('u', True))
         patch.CreateVKnotsAttr().Set(surf.knots('v', True))
 
-        
         if surf.rational:
             cp      = surf[:,:,:-1]
             weights = surf[:,:, -1]
@@ -66,12 +87,15 @@ class USD(MasterIO):
             for o in obj:
                 self.write(o)
             return
-        
-        # break periodicity 
+
+        # break periodicity
         for i in range(obj.pardim):
             if obj.periodic(i):
                 obj = obj.split(obj.start(i), i)
         print(obj)
+
+        # enforce 3D
+        obj = obj.set_dimension(3)
 
         if isinstance(obj, Volume):
             # in case of volume, write all 6 boundary edges
@@ -86,7 +110,11 @@ class USD(MasterIO):
         elif isinstance(obj, Surface):
             self.write_surface(obj)
             self.patch_count += 1
-            
+
+        elif isinstance(obj, Curve):
+            self.write_curve(obj)
+            self.curve_count += 1
+
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.stage.GetRootLayer().Save()
