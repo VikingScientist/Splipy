@@ -27,6 +27,7 @@ class USD(MasterIO):
             self.binary = True
 
         self.filename = filename
+        self.xform    = None
         self.patch_count = 0
         self.curve_count = 0
 
@@ -34,13 +35,19 @@ class USD(MasterIO):
         self.stage = Usd.Stage.CreateNew(self.filename)
         return self
 
+    def set_xform(self, xform):
+        self.xform = xform
+        self.xformPrim = UsdGeom.Xform.Define(self.stage, f'/{xform}')
+
     def read(self):
         raise IOError('Reading from USD files not supported')
 
     def write_curve(self, crv):
-        patch = UsdGeom.NurbsCurves.Define(self.stage, f'/curve{self.curve_count}/spline')
+        root = '/' if self.xform is None else f'/{self.xform}/'
+        patch = UsdGeom.NurbsCurves.Define(self.stage, f'{root}curve{self.curve_count}/spline')
 
-        patch.CreateOrderAttr().Set([crv.order('u')])
+        # sometimes order('u') is returned as np.int64-object, which pxr.Usd doesn't like
+        patch.CreateOrderAttr().Set([int(crv.order('u'))])
         patch.CreateCurveVertexCountsAttr().Set([crv.shape[0]  ])
         patch.CreateKnotsAttr().Set(crv.knots('u', True))
         patch.CreateWidthsAttr().Set([.2])
@@ -55,21 +62,34 @@ class USD(MasterIO):
             patch.CreatePointWeightsAttr().Set(weights)
         else:
             patch.CreatePointsAttr().Set(crv[:])
+            patch.CreateVelocitiesAttr().Set(crv.derivative(crv.bases[0].greville()))
 
 
-    def write_surface(self, surf, edge=None):
+    def write_surface(self, surf, edge=None, display_color=None, display_opacity=None):
+        root = '/' if self.xform is None else f'/{self.xform}/'
         if edge is None:
-            patch = UsdGeom.NurbsPatch.Define(self.stage, f'/patch{self.patch_count}/spline')
+            patch = UsdGeom.NurbsPatch.Define(self.stage, f'{root}patch{self.patch_count}')
         else:
-            patch = UsdGeom.NurbsPatch.Define(self.stage, f'/patch{self.patch_count}/edge{edge}')
-        patch.CreateUOrderAttr().Set(surf.order('u'))
-        patch.CreateVOrderAttr().Set(surf.order('v'))
+            patch = UsdGeom.NurbsPatch.Define(self.stage, f'{root}patch{self.patch_count}/edge{edge}')
+
+        # sometimes order('u') is returned as np.int64-object, which pxr.Usd doesn't like
+        patch.CreateUOrderAttr().Set(int(surf.order('u')))
+        patch.CreateVOrderAttr().Set(int(surf.order('v')))
 
         patch.CreateUVertexCountAttr().Set(surf.shape[0])
         patch.CreateVVertexCountAttr().Set(surf.shape[1])
 
         patch.CreateUKnotsAttr().Set(surf.knots('u', True))
         patch.CreateVKnotsAttr().Set(surf.knots('v', True))
+        
+        print(display_color)
+        if display_color is not None:
+            patch.CreateDisplayColorAttr().Set([display_color])
+        if display_opacity is not None:
+            patch.CreateDisplayOpacityAttr().Set([display_opacity])
+
+        # don't hide the back face of objects
+        patch.CreateDoubleSidedAttr().Set(True)
 
         if surf.rational:
             cp      = surf[:,:,:-1]
@@ -81,34 +101,34 @@ class USD(MasterIO):
         else:
             patch.CreatePointsAttr().Set(surf[:])
 
-    def write(self, obj):
+    def write(self, obj, display_color=None, display_opacity=None):
         # In case of list-like input (i.e. splinemodel object), write all objects separately
         if isinstance(obj[0], SplineObject):
             for o in obj:
-                self.write(o)
+                self.write(o, display_color=display_color, display_opacity=display_opacity)
             return
 
         # break periodicity
         for i in range(obj.pardim):
             if obj.periodic(i):
                 obj = obj.split(obj.start(i), i)
-        print(obj)
 
         # enforce 3D
         obj = obj.set_dimension(3)
 
         if isinstance(obj, Volume):
             # in case of volume, write all 6 boundary edges
-            self.xformPrim = UsdGeom.Xform.Define(self.stage, f'/patch{self.patch_count}')
+            root = '/' if self.xform is None else f'/{self.xform}/'
+            self.xformPrim = UsdGeom.Xform.Define(self.stage, f'{root}patch{self.patch_count}')
             for i,surf in enumerate(obj.faces()):
                 # reorient normal so it is pointing outward
                 if i in [0,3,4]:
                     surf.swap()
-                self.write_surface(surf, i)
+                self.write_surface(surf, edge=i, display_color=display_color, display_opacity=display_opacity)
             self.patch_count += 1
 
         elif isinstance(obj, Surface):
-            self.write_surface(obj)
+            self.write_surface(obj, display_color=display_color, display_opacity=display_opacity)
             self.patch_count += 1
 
         elif isinstance(obj, Curve):

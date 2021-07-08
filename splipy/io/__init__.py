@@ -38,3 +38,6 @@ if has_grdecl:
 
 if has_rhino:
     __all__.append('ThreeDM')
+
+if has_usd:
+    __all__.append('USD')
