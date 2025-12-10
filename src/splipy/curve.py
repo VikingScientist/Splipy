@@ -7,6 +7,7 @@ import numpy as np
 import scipy.sparse.linalg as splinalg
 
 from . import state
+
 from .basis import BSplineBasis
 from .splineobject import SplineObject
 from .utils import ensure_listlike, is_singleton
@@ -373,7 +374,7 @@ class Curve(SplineObject):
     def length(self, t0: Scalar | None = None, t1: Scalar | None = None) -> float:
         """Computes the euclidian length of the curve in geometric space
 
-        .. math:: \\int_{t_0}^{t_1}\\sqrt{x(t)^2 + y(t)^2 + z(t)^2} dt
+        .. math:: \\int_{t_0}^{t_1} \\left\\| \\frac{d\\boldsymbol{x}}{dt}(t) \\right\\| \\, dt
 
         """
         knots = self.knots(0)
@@ -426,60 +427,60 @@ class Curve(SplineObject):
 
         # return new resampled curve
         return Curve(basis, controlpoints)
-
+    
     def _closest_point_linear_curve(self, pt: ArrayLike) -> tuple[FloatArray, float]:
         """Computes the closest point on a linear curve to a given point.
         :param array-like pt: point to which the closest point on the curve is sought
         :return: the closest point on the curve and its parametric location
         :rtype: tuple(numpy.array, float)
-
         """
         knots = self.knots(0)
-        mindist_squared = np.linalg.norm(pt - self.controlpoints[0]) ** 2
+        mindist_squared = np.linalg.norm(pt - self.controlpoints[0])**2
         t = knots[0]
-        for p1, p0, t1, t0 in zip(self.controlpoints[1:], self.controlpoints[:-1], knots[2:-1], knots[1:-2]):
+        for p1,p0,t1,t0 in zip(self.controlpoints[1:], self.controlpoints[:-1],
+                              knots[2:-1], knots[1:-2]):
             b = p1 - p0
             a = pt - p0
-            if 0 <= np.dot(a, b) <= np.dot(b, b):
-                dist_squared = np.dot(a, a) - np.dot(a, b) ** 2 / np.dot(b, b)
+            if 0 <= np.dot(a,b) <= np.dot(b,b):
+                dist_squared = np.dot(a,a) - np.dot(a,b)**2 / np.dot(b,b)
                 if dist_squared < mindist_squared:
                     mindist_squared = dist_squared
-                    t = t0 + (np.dot(a, b) / np.dot(b, b)) * (t1 - t0)
-                if np.dot(p1 - pt, p1 - p0) < mindist_squared:
-                    mindist_squared = np.dot(p1 - pt, p1 - pt)
+                    t = t0 + (np.dot(a,b) / np.dot(b,b)) * (t1 - t0)
+                if np.dot(p1-pt,p1-p0) < mindist_squared:
+                    mindist_squared = np.dot(p1-pt,p1-pt)
                     t = t1
-        return self(t), t
+        return self(t),t
 
-    def closest_point(self, pt: ArrayLike, t0: Scalar = None) -> tuple[FloatArray, float]:
+    def closest_point(self, pt : ArrayLike, t0 : Scalar = None) -> tuple[FloatArray, float]:
         """Computes the closest point on this curve to a given point. This is done by newton iteration
-        and is using the state variables `controlpoint_absolute_tolerance`
+        and is using the state variables `controlpoint_absolute_tolerance` and `controlpoint_relative_tolerance`
         to determine convergence; but limited to 15 iterations.
         :param array-like pt: point to which the closest point on the curve is sought
         :param float t0: optional starting guess for the parametric location of the closest point
         :return: the closest point on the curve and its parametric location
         :rtype: tuple(numpy.array, float)
-
         """
         if self.order(0) == 1:
             return self._closest_point_linear_curve(pt)
 
         if t0 is None:
-            dist = [np.linalg.norm(cp - pt) for cp in self.controlpoints]
+            dist = [np.linalg.norm(cp-pt) for cp in self.controlpoints]
         i = np.argmin(dist)
         t0 = self.bases[0].greville(i)
         t = t0
         iter = 0
         atol = state.controlpoint_absolute_tolerance
+        rtol = state.controlpoint_relative_tolerance
         F = np.dot(self(t) - pt, self.derivative(t))
         while np.abs(F) > atol:
             x = self(t)
             dx = self.derivative(t)
             ddx = self.derivative(t, d=2)
-            e = x - pt
-            dF = np.dot(dx, dx) + np.dot(e, ddx)
+            e  = x - pt
+            dF = np.dot(dx,dx) + np.dot(e, ddx)
             dt = -F / dF
             # closest point outside curve definition. Return the closest endpoint
-            if (t == self.bases[0].start() and dt < 0) or (t == self.bases[0].end() and dt > 0):
+            if (t==self.bases[0].start() and dt < 0) or (t==self.bases[0].end() and dt > 0):
                 break
             t += dt
             t = np.clip(t, self.bases[0].start(), self.bases[0].end())
@@ -532,6 +533,90 @@ class Curve(SplineObject):
             err2.append(np.dot(error, wg))  # integrate over domain
             err_inf = max(np.max(np.sqrt(error)), err_inf)
         return (np.array(err2, dtype=np.float64), err_inf)
+
+    def antiderivative(self, constant: ArrayLike | None = None) -> Curve:
+        """Compute the antiderivative (integral) of the curve.
+
+        The antiderivative is computed by inverting the derivative operator on
+        the spline space. The result is a new curve of order p+1 (where p is
+        the current order) whose derivative equals this curve.
+
+        The antiderivative is only unique up to an additive constant. By default,
+        the constant is chosen such that the antiderivative evaluates to zero at
+        the start of the parametric domain. You can specify a different constant
+        to shift the result.
+
+        :param array-like constant: Optional constant vector to add to the result.
+            If not provided, defaults to zero (antiderivative is zero at t=start).
+            Must have the same dimension as the curve's physical space.
+        :type constant: array-like or None
+        :return: A new curve whose derivative equals self
+        :rtype: Curve
+        :raises RuntimeError: If the curve is rational (not yet supported)
+
+        Examples:
+
+        .. code:: python
+
+            import splipy as sp
+            import numpy as np
+
+            # Create a linear curve (constant derivative)
+            curve = sp.curve_factory.line([0, 0], [1, 1])
+            
+            # Compute antiderivative
+            integral = curve.antiderivative()
+            
+            # The derivative of integral should equal the original curve
+            t = np.linspace(0, 1, 11)
+            diff = np.linalg.norm(integral.derivative(t) - curve(t))
+            print(f"Error: {diff}")  # Should be near machine precision
+
+        """
+        if self.rational:
+            raise RuntimeError("Antiderivative not yet supported for rational splines")
+
+        # Get the current knot vector and order
+        old_knots = self.knots(0, with_multiplicities=True)
+        p = self.order(0)
+        n = self.shape[0]
+
+        # New basis has order p+1 and n+1 control points
+        # The new knot vector is: [k_0, k_0, k_1, k_2, ..., k_m, k_m]
+        # where [k_0, k_1, ..., k_m] is the original knot vector
+        new_knots = np.concatenate(([old_knots[0]], old_knots, [old_knots[-1]]))
+        new_basis = BSplineBasis(p + 1, new_knots)
+
+        # Build inverse differentiation matrix using the new knot vector
+        # For the antiderivative with order p+1:
+        #   derivative_cp[i] = p / (k_new[i+p+1] - k_new[i+1]) * (cp_new[i+1] - cp_new[i])
+        # where k_new is the new knot vector
+        # Inverting:
+        #   cp_new[i+1] - cp_new[i] = (k_new[i+p+1] - k_new[i+1]) / p * derivative_cp[i]
+        
+        new_controlpoints = np.zeros((n + 1, self.dimension + self.rational), dtype=np.float64)
+        
+        for i in range(n):
+            # For the new knot vector with knot inserted at start and end
+            # We map: old knot index j -> new knot index j+1
+            # So: k_new[i+p+1] corresponds to k_old[i+p] and 
+            #     k_new[i+1] corresponds to k_old[i]
+            delta_knot = old_knots[i + p] - old_knots[i]
+            new_controlpoints[i + 1, :] = new_controlpoints[i, :] + (delta_knot / p) * self.controlpoints[i, :]
+
+        # Apply the integration constant
+        if constant is None:
+            constant = np.zeros(self.dimension + self.rational, dtype=np.float64)
+        else:
+            constant = np.atleast_1d(np.asarray(constant, dtype=np.float64))
+            if len(constant) != self.dimension + self.rational:
+                raise ValueError(
+                    f"constant must have length {self.dimension + self.rational}, got {len(constant)}"
+                )
+
+        new_controlpoints += constant
+
+        return Curve(new_basis, new_controlpoints, self.rational)
 
     def __repr__(self) -> str:
         return str(self.bases[0]) + "\n" + str(self.controlpoints)

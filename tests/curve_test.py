@@ -644,6 +644,90 @@ class TestCurve(unittest.TestCase):
         # this is a helix approximation, hence atol=1e-3
         self.assertTrue(np.allclose(k, b / (a**2 + b**2), atol=1e-3))  # helix have const. torsion
 
+    def test_antiderivative(self):
+        """Test that antiderivative inverts the derivative operation."""
+        # Test 1: Linear curve (constant derivative)
+        basis = BSplineBasis(2, [0, 0, 1, 1])
+        controlpoints = [[0, 0], [1, 1]]
+        crv = Curve(basis, controlpoints)
+
+        # Integrate
+        integral = crv.antiderivative()
+
+        # Check: derivative of integral should recover the original
+        t = np.linspace(0, 1, 11)
+        original = crv(t)
+        recovered = integral.derivative(t)
+        self.assertAlmostEqual(float(np.linalg.norm(original - recovered)), 0.0)
+
+        # Check: order increased by 1
+        self.assertEqual(integral.order(0), crv.order(0) + 1)
+
+        # Check: integral is zero at start
+        start_val = integral(crv.start(0))
+        self.assertAlmostEqual(float(np.linalg.norm(start_val)), 0.0)
+
+        # Test 2: Quadratic curve
+        basis = BSplineBasis(3, [0, 0, 0, 1, 1, 1])
+        controlpoints = [[0, 0], [1, 1], [2, 0]]
+        crv = Curve(basis, controlpoints)
+
+        integral = crv.antiderivative()
+
+        t = np.linspace(0, 1, 21)
+        original = crv(t)
+        recovered = integral.derivative(t)
+        error = np.linalg.norm(original - recovered)
+        self.assertAlmostEqual(error, 0.0, places=12)
+
+        # Test 3: With custom integration constant
+        constant = np.array([1.0, 2.0])
+        integral_with_const = crv.antiderivative(constant=constant)
+
+        # Check that the constant offset is applied
+        start_val = integral_with_const(crv.start(0))
+        expected_start = constant
+        error = np.linalg.norm(start_val - expected_start)
+        self.assertAlmostEqual(error, 0.0, places=12)
+
+        # Derivative should still match original curve
+        recovered_with_const = integral_with_const.derivative(t)
+        error = np.linalg.norm(original - recovered_with_const)
+        self.assertAlmostEqual(error, 0.0, places=12)
+
+        # Test 4: Higher-order curve
+        basis = BSplineBasis(4, [0, 0, 0, 0, 1, 1, 1, 1])
+        controlpoints = [[0, 0], [1, 0.5], [1.5, 1], [1, 0]]
+        crv = Curve(basis, controlpoints)
+
+        integral = crv.antiderivative()
+        t = np.linspace(0, 1, 31)
+        original = crv(t)
+        recovered = integral.derivative(t)
+        error = np.linalg.norm(original - recovered)
+        self.assertAlmostEqual(error, 0.0, places=10)
+
+        # Test 5: 3D curve
+        basis = BSplineBasis(3, [0, 0, 0, 1, 1, 1])
+        controlpoints = [[0, 0, 0], [1, 1, 0], [1, 1, 1]]
+        crv = Curve(basis, controlpoints)
+
+        integral = crv.antiderivative()
+        t = np.linspace(0, 1, 11)
+        original = crv(t)
+        recovered = integral.derivative(t)
+        error = np.linalg.norm(original - recovered)
+        self.assertAlmostEqual(error, 0.0, places=12)
+
+        # Test 6: Rational splines should raise an error
+        basis = BSplineBasis(2, [0, 0, 1, 1])
+        controlpoints = [[0, 0, 1], [1, 1, 1]]  # Homogeneous coordinates
+        rational_crv = Curve(basis, controlpoints, rational=True)
+
+        with self.assertRaises(RuntimeError):
+            rational_crv.antiderivative()
+
 
 if __name__ == "__main__":
     unittest.main()
+
